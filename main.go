@@ -27,6 +27,7 @@ import (
 var db *sql.DB
 
 func main() {
+	// gin.SetMode(gin.ReleaseMode)
 	connectToDB()
 	router := gin.Default()
 	router.Use(CORSMiddleware())
@@ -49,14 +50,33 @@ func main() {
 
 	}
 
+	matchesGroup := router.Group("/matches")
+	{
+		matchesGroup.Use(ensureAuthenticated())
+
+		matchesGroup.GET("/:id", getMatchFromID)
+		matchesGroup.POST("/:id/sets", newSetForMatch)
+
+		matchesGroup.POST("/:id/score", scoreMatch)
+
+	}
+
 	compsGroup := router.Group("/comps")
 	{
 		compsGroup.Use(ensureAuthenticated())
 
-		compsGroup.GET("/:id", getCompWithID)
-		compsGroup.GET("/:id/players", getCompPlayers)
 		compsGroup.POST("", createComp)
 		compsGroup.GET("", getPublicComps)
+
+		compIdGroup := compsGroup.Group("/:id")
+		{
+			compIdGroup.GET("", getCompWithID)
+
+			compIdGroup.GET("/players", getCompPlayers)
+
+			compIdGroup.GET("/matches", getCompMatches)
+			compIdGroup.POST("/matches", newMatchInComp)
+		}
 
 	}
 

@@ -77,7 +77,11 @@ func HashPassword(password string) string {
 	return string(hash)
 }
 
-func handleError(err error, c *gin.Context) {
+func handleError(err error, c *gin.Context) bool {
+	if err == nil {
+		return false
+	}
+
 	var status int
 	if err == sql.ErrNoRows {
 		status = http.StatusNotFound
@@ -86,4 +90,15 @@ func handleError(err error, c *gin.Context) {
 	}
 	println(err.Error())
 	c.AbortWithError(status, err)
+	return true
+}
+
+func tryGetRequest(c *gin.Context, obj interface{}) bool {
+
+	if err := c.Bind(obj); err != nil {
+		println(err.Error())
+		c.Status(http.StatusBadRequest)
+		return false
+	}
+	return true
 }

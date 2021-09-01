@@ -14,6 +14,8 @@
 
 package main
 
+import "time"
+
 type PlayerRegister struct {
 	FirstName string `form:"first_name" binding:"required"`
 	LastName  string `form:"last_name"`
@@ -42,9 +44,9 @@ type ErrorResposne struct {
 }
 
 type Competition struct {
-	Id        int    `json:"id"`
-	Name      string `json:"name"`
-	IsPrivate *bool  `json:"isPrivate"`
+	Id        *int    `json:"id"`
+	Name      *string `json:"name"`
+	IsPrivate *bool   `json:"isPrivate"`
 }
 
 type CompetitionResponse struct {
@@ -68,4 +70,14 @@ type Player struct {
 
 type PlayersResponse struct {
 	Players []Player `json:"players"`
+}
+
+type Match struct {
+	MatchID     int          `json:"matchID"`
+	Competition *Competition `json:"competition"`
+	Player1     *Player      `json:"player1"`
+	Player2     *Player      `json:"player2"`
+	StartDate   *time.Time   `json:"startDate"`
+	EndDate     *time.Time   `json:"endDate"`
+	WinnerID    *int         `json:"winnerID"`
 }
