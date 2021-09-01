@@ -19,7 +19,9 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -73,4 +75,15 @@ func HashPassword(password string) string {
 		panic(err)
 	}
 	return string(hash)
+}
+
+func handleError(err error, c *gin.Context) {
+	var status int
+	if err == sql.ErrNoRows {
+		status = http.StatusNotFound
+	} else {
+		status = http.StatusInternalServerError
+	}
+	println(err.Error())
+	c.AbortWithError(status, err)
 }

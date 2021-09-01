@@ -31,12 +31,34 @@ func main() {
 	router := gin.Default()
 	router.Use(CORSMiddleware())
 
-	router.GET("/players", ensureAuthenticated(), getPlayers)
 	router.POST("/register", registerPlayer)
 	router.POST("/login", login)
 	router.POST("/logout", ensureAuthenticated(), logout)
 
-	router.POST("/comps", ensureAuthenticated(), createComp)
+	playersGroup := router.Group("/players")
+	{
+		playersGroup.Use(ensureAuthenticated())
+
+		playersGroup.GET("", getPlayers)
+		playersGroup.GET("/:id", getPlayerWithID)
+
+		playersGroup.GET("/:id/comps", getPlayerComps)
+		playersGroup.POST("/:id/invite", inviteToComp)
+		playersGroup.GET("/:id/invite", getCompInvites)
+		playersGroup.PUT("/:id/invite/:compid", updateCompInvite)
+
+	}
+
+	compsGroup := router.Group("/comps")
+	{
+		compsGroup.Use(ensureAuthenticated())
+
+		compsGroup.GET("/:id", getCompWithID)
+		compsGroup.GET("/:id/players", getCompPlayers)
+		compsGroup.POST("", createComp)
+		compsGroup.GET("", getPublicComps)
+
+	}
 
 	router.Run(":8080")
 }

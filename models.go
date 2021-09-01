@@ -40,3 +40,32 @@ type CompCreateDetails struct {
 type ErrorResposne struct {
 	Message string `json:"error"`
 }
+
+type Competition struct {
+	Id        int    `json:"id"`
+	Name      string `json:"name"`
+	IsPrivate *bool  `json:"isPrivate"`
+}
+
+type CompetitionResponse struct {
+	Competitions []Competition `json:"compeitions"`
+}
+
+type InviteResponse struct {
+	Invites []Invite `json:"invites"`
+}
+type Invite struct {
+	CompID     int    `json:"compID"`
+	CompName   string `json:"compName"`
+	FromPlayer Player `json:"fromPlayer"`
+}
+
+type Player struct {
+	Id        int    `json:"id"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+}
+
+type PlayersResponse struct {
+	Players []Player `json:"players"`
+}

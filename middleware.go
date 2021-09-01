@@ -24,17 +24,23 @@ func ensureAuthenticated() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.GetHeader("Token")
 		if token == "" {
-			c.AbortWithStatus(http.StatusUnauthorized)
+			logNotAuthenticated(c)
 			return
 		}
 		sqlStatement := `SELECT token FROM player_token WHERE token=$1 LIMIT 1;`
 		row := db.QueryRow(sqlStatement, token)
 		if row.Err() != nil {
 			println(row.Err().Error())
-			c.AbortWithStatus(http.StatusUnauthorized)
+			logNotAuthenticated(c)
 			return
 		}
 	}
+}
+
+func logNotAuthenticated(c *gin.Context) {
+	ip, _ := c.RemoteIP()
+	println(ip.String(), "not autenticated")
+	c.AbortWithStatus(http.StatusUnauthorized)
 }
 
 func CORSMiddleware() gin.HandlerFunc {
