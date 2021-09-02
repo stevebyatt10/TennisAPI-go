@@ -81,3 +81,9 @@ type Match struct {
 	EndDate     *time.Time   `json:"endDate"`
 	WinnerID    *int         `json:"winnerID"`
 }
+
+type ScoreResponse struct {
+	Point int `json:"pointNum"`
+	Game  int `json:"gameID"`
+	Set   int `json:"setID"`
+}

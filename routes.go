@@ -189,6 +189,7 @@ func scoreMatch(c *gin.Context) {
 		return
 	}
 
+	// Update the current point
 	sqlStatement := `UPDATE point SET 
 	faults=$3, 
 	lets=$4,
@@ -201,26 +202,30 @@ func scoreMatch(c *gin.Context) {
 		return
 	}
 
-	var currGamePoints, maxGamePoints int
-	sqlStatement = `SELECT num_points, 
+	println("current point updated")
+
+	// See if current game is over
+
+	println("Checking if current game is over")
+
+	var currGamePoints, currentServerID, maxGamePoints int
+	sqlStatement = `SELECT server_id, num_points, 
 	(SELECT COUNT(point.number) 
 	FROM point 
 	WHERE game_id = $1 AND point.winner_id = $2
 	) AS cur_points 
 	FROM game WHERE id = $1; `
-	err = db.QueryRow(sqlStatement, request.Game, request.WinnerID).Scan(&maxGamePoints, currGamePoints)
+	err = db.QueryRow(sqlStatement, request.Game, request.WinnerID).Scan(&currentServerID, &maxGamePoints, &currGamePoints)
 	if handleError(err, c) {
 		return
 	}
 
-	var response struct {
-		Point int `json:"pointNum"`
-		Game  int `json:"gameID"`
-		Set   int `json:"setID"`
-	}
+	var response ScoreResponse
 
 	// Game not over
 	if currGamePoints < maxGamePoints {
+
+		println("Current game still going, creating new point")
 		// new point, same game
 		// return new pointNum, same game ID and same set ID
 
@@ -244,27 +249,37 @@ func scoreMatch(c *gin.Context) {
 	// 	set game winner to point winner
 	sqlStatement = `UPDATE game SET 
 	winner_id=$1
-	WHERE game_id=$2`
+	WHERE id=$2`
 	_, err = db.Exec(sqlStatement, request.WinnerID, request.Game)
 	if handleError(err, c) {
 		return
 	}
 
+	println("Current game is over, updated game winner")
+
+	// Check current set
+
 	// 	see how many games winner has in set
-	var currGames, maxGames int
-	sqlStatement = `SELECT num_games, 
+
+	println("Checking if current set is over")
+
+	var currGames, maxGames, matchID int
+	sqlStatement = `SELECT match_id, num_games, 
 	(SELECT COUNT(game.id) 
 	FROM game
 	WHERE set_id = $1 AND game.winner_id = $2
 	) AS cur_games 
 	FROM set WHERE id = $1; `
-	err = db.QueryRow(sqlStatement, request.Set, request.WinnerID).Scan(&maxGames, currGames)
+	err = db.QueryRow(sqlStatement, request.Set, request.WinnerID).Scan(&matchID, &maxGames, &currGames)
 	if handleError(err, c) {
 		return
 	}
 
 	// Set not over
 	if currGames < maxGames {
+
+		println("Current set is not over")
+
 		// new game under set, set server to other player
 		sqlStatement = `WITH ret_new_game AS (
 		WITH new_game AS
@@ -299,6 +314,8 @@ func scoreMatch(c *gin.Context) {
 		;`
 		// return new pointNum, new game ID and same set ID
 
+		println("Created new game and new point")
+
 		err := db.QueryRow(sqlStatement, request.Set).Scan(&response.Point, &response.Game)
 		if handleError(err, c) {
 			return
@@ -307,53 +324,82 @@ func scoreMatch(c *gin.Context) {
 		c.JSON(http.StatusOK, response)
 		return
 	}
-	//TODO
+
+	println("Current set is over, update set winner")
+
 	// // 	if set is over
-
 	// set set winner to point winner
-	// 			see how many sets winner has in match
+	sqlStatement = `UPDATE set SET 
+		winner_id=$1
+		WHERE id=$2`
+	_, err = db.Exec(sqlStatement, request.WinnerID, request.Set)
+	if handleError(err, c) {
+		return
+	}
 
-	/*
-		Update point with values
+	// 	see how many sets winner has in match
 
-		See how many points winner has in current game
-		If game is over
-		{
-			set game winner to point winner
-			see how many games winner has in set
-			if set is over
-			{
-				set set winner to point winner
-				see how many sets winner has in match
-				if match is over
-				{
-					set match winner to point winner
-				}
-				if match is not over
-				{
-					new set
-					new game
-					alternate server
-					new point
-					return new pointNum, new game ID and new set ID
-				}
-			}
-			if set is not over
-			{
-				new game
-				alternate server
-				new point
-				return new pointNum, new game ID and same set ID
+	println("Checking if current match is over")
 
-			}
+	var numSets, currSets int
+	sqlStatement = `SELECT num_sets,
+	(SELECT COUNT(set.id)
+	FROM set
+	WHERE match_id = $1 AND set.winner_id = $2
+	) AS curr_sets
+	FROM match WHERE id = $1; `
+	err = db.QueryRow(sqlStatement, matchID, request.WinnerID).Scan(&numSets, &currSets)
+	if handleError(err, c) {
+		return
+	}
+
+	// if match not over
+	if currSets < numSets {
+
+		println("Current match is not over")
+
+		// get alternating server
+		var newServer int
+		sqlStatement = `SELECT
+			CASE 
+			WHEN player1_id = $1 THEN player2_ID
+			ELSE player1_id
+			END as new_server
+			FROM MATCH`
+		err = db.QueryRow(sqlStatement, currentServerID).Scan(&newServer)
+		if handleError(err, c) {
+			return
 		}
-		if game is not over
-		{
-			new point, same game
-			return new pointNum, same game ID and same set ID
+
+		println("Get alternating server")
+
+		// Create new set, game, point
+		res := newSetGamePoint(c, matchID, newServer, request.Set+1, maxGamePoints, maxGames)
+		if res == nil {
+			return
 		}
 
-	*/
+		println("Created new set, game and point")
+
+		response = *res
+		c.JSON(http.StatusOK, response)
+		return
+	}
+
+	// if match  over
+
+	println("Current match over creating new result")
+
+	// create new match result with winner
+
+	sqlStatement = `INSERT INTO match_result (match_id, winner_id)
+	VALUES
+	($1, $2)`
+	_, err = db.Exec(sqlStatement, matchID, request.WinnerID)
+	if handleError(err, c) {
+		return
+	}
+	c.Status(http.StatusOK)
 
 }
 
@@ -397,23 +443,84 @@ func newMatchInComp(c *gin.Context) {
 	match.Player1, match.Player2 = getPlayersFromMatch(request.Player1ID, request.Player2ID)
 
 	var response struct {
-		Point int   `json:"pointNum"`
-		Game  int   `json:"gameID"`
-		Set   int   `json:"setID"`
-		Match Match `json:"match"`
+		NewIDs ScoreResponse `json:"newIDs"`
+		Match  Match         `json:"match"`
 	}
 
+	// // Create a new set, game and point
+	// sqlStatement = `WITH new_set AS (
+	// 	INSERT INTO set (match_id, number, num_games)
+	// 	VALUES
+	// 	($1, 1, $2)
+	// 	RETURNING id
+	// 	),
+	// 	new_game AS (
+	// 	INSERT INTO game (set_id, number, server_id, num_points)
+	// 	VALUES
+	// 	( (SELECT id FROM new_set), 1, $3, $4)
+	// 	RETURNING id
+	// 	),
+	// 	new_point AS (
+	// 	INSERT into point (number, game_id)
+	// 	VALUES
+	// 	(1,  (SELECT id FROM new_game) )
+	// 	RETURNING number
+	// 	)
+	// 	SELECT new_point.number as pid, new_game.id as gid, new_set.id as sid
+	// 	FROM new_point, new_game, new_set`
+
+	// err = db.QueryRow(sqlStatement, match.MatchID, request.NumGames, request.ServerID, request.NumPoints).Scan(&response.Point, &response.Game, &response.Set)
+	// if handleError(err, c) {
+	// 	return
+	// }
+
+	res := newSetGamePoint(c, match.MatchID, request.ServerID, 1, request.NumPoints, request.NumGames)
+	if res == nil {
+		return
+	}
+
+	response.NewIDs = *res
+	response.Match = match
+
+	c.JSON(http.StatusOK, response)
+
+}
+
+func newSetGamePoint(c *gin.Context, matchID, serverID, setNumber, numPoints, numGames int) *ScoreResponse {
+	// var response struct {
+	// 	Point int   `json:"pointNum"`
+	// 	Game  int   `json:"gameID"`
+	// 	Set   int   `json:"setID"`
+	// 	Match Match `json:"match"`
+	// }
+
+	var response ScoreResponse
+	// var setNumber int
+
+	// // Get new set number
+	// sqlStatement := `SELECT number+1 FROM set
+	// 	WHERE number = (
+	// 	SELECT MAX (number)
+	// 	FROM set
+	// 	WHERE match_id = $1)
+	// 	AND match_id = $1`
+	// err := db.QueryRow(sqlStatement, matchID).Scan(&setNumber)
+	// if err != nil {
+	// 	println(err.Error())
+	// 	setNumber = 1
+	// }
+
 	// Create a new set, game and point
-	sqlStatement = `WITH new_set AS (
+	sqlStatement := `WITH new_set AS (
 		INSERT INTO set (match_id, number, num_games)
 		VALUES
-		($1, 1, $2)
+		($1, $2, $3)
 		RETURNING id
 		), 
 		new_game AS (
 		INSERT INTO game (set_id, number, server_id, num_points)
 		VALUES
-		( (SELECT id FROM new_set), 1, $3, $4)
+		( (SELECT id FROM new_set), 1, $4, $5)
 		RETURNING id
 		),
 		new_point AS (
@@ -425,15 +532,12 @@ func newMatchInComp(c *gin.Context) {
 		SELECT new_point.number as pid, new_game.id as gid, new_set.id as sid
 		FROM new_point, new_game, new_set`
 
-	err = db.QueryRow(sqlStatement, match.MatchID, request.NumGames, request.ServerID, request.NumPoints).Scan(&response.Point, &response.Game, &response.Set)
+	err := db.QueryRow(sqlStatement, matchID, setNumber, numGames, serverID, numPoints).Scan(&response.Point, &response.Game, &response.Set)
 	if handleError(err, c) {
-		return
+		return nil
 	}
 
-	response.Match = match
-
-	c.JSON(http.StatusOK, response)
-
+	return &response
 }
 
 func getMatchFromID(c *gin.Context) {
