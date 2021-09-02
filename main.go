@@ -55,8 +55,6 @@ func main() {
 		matchesGroup.Use(ensureAuthenticated())
 
 		matchesGroup.GET("/:id", getMatchFromID)
-		matchesGroup.POST("/:id/sets", newSetForMatch)
-
 		matchesGroup.POST("/:id/score", scoreMatch)
 
 	}

@@ -25,6 +25,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// Endpoint: players/:id/invite
+//
+// Creates a new invite to competition for the specified player
 func inviteToComp(c *gin.Context) {
 	inviteID := c.Param("id")
 	fromID := c.Query("inviteFrom")
@@ -48,6 +51,9 @@ func inviteToComp(c *gin.Context) {
 
 }
 
+// Endpoint: /players/:id/invite
+//
+// Returns a list of all competition ivnites
 func getCompInvites(c *gin.Context) {
 	playerID := c.Param("id")
 
@@ -83,6 +89,11 @@ func getCompInvites(c *gin.Context) {
 
 }
 
+// Endpoint: /players/:id/invite/compid
+//
+// If accepting invitation comp_reg is updated, pending = false
+//
+// If declining invite, comp_reg is deleted
 func updateCompInvite(c *gin.Context) {
 	inviteID := c.Param("id")
 	compID := c.Param("compid")
@@ -115,6 +126,11 @@ func updateCompInvite(c *gin.Context) {
 
 }
 
+// Helper function
+//
+// Adds the player to the comp
+//
+// Returns error object from queery
 func joinComp(playerId int, compId int) error {
 	sqlStatement := `INSERT INTO comp_reg (player_id, comp_id, reg_date)
 	VALUES ($1, $2, current_timestamp)`
@@ -122,6 +138,9 @@ func joinComp(playerId int, compId int) error {
 	return err
 }
 
+// Endpoint: /comps
+//
+// Cretes a new competition in the DB and returns the comp id
 func createComp(c *gin.Context) {
 	var compDetails CompCreateDetails
 
@@ -153,26 +172,18 @@ func createComp(c *gin.Context) {
 
 }
 
-func newSetForMatch(c *gin.Context) {
-	// matchID := c.Param("id")
-
-	// sqlStatement := `INSERT INTO set (match_id, number)
-	// VALUES
-	// ($1,
-	// 	(SELECT
-	// 		COUNT(id)+1 as new_number
-	// 		FROM
-	// 		set
-	// 		WHERE
-	// 		set.match_id = $1)
-	// )
-	// RETURNING id;`
-
-	// var match Match
-	// err := db.QueryRow(sqlStatement, compID, request.StartDate, request.Player1ID, request.Player2ID).Scan(&match.MatchID, &match.StartDate)
-}
-
+// Endpoint: /matches/:id/score
+//
+// Updates the score for the match, creates new points, games or sets as necessary
+//
+// Returns a Score Object if game is still in progress, returns empty body when game finished
 func scoreMatch(c *gin.Context) {
+
+	param := c.Param("id")
+	matchID, err := strconv.Atoi(param)
+	if handleError(err, c) {
+		return
+	}
 
 	var request struct {
 		Point         int   `form:"pointNum" binding:"required"`
@@ -197,7 +208,7 @@ func scoreMatch(c *gin.Context) {
 	unforced_error=$6,
 	winner_id=$7
 	WHERE number=$1 AND game_id=$2`
-	_, err := db.Exec(sqlStatement, request.Point, request.Game, request.Faults, request.Lets, request.Ace, request.UnforcedError, request.WinnerID)
+	_, err = db.Exec(sqlStatement, request.Point, request.Game, request.Faults, request.Lets, request.Ace, request.UnforcedError, request.WinnerID)
 	if handleError(err, c) {
 		return
 	}
@@ -263,14 +274,14 @@ func scoreMatch(c *gin.Context) {
 
 	println("Checking if current set is over")
 
-	var currGames, maxGames, matchID int
-	sqlStatement = `SELECT match_id, num_games, 
+	var currGames, maxGames int
+	sqlStatement = `SELECT num_games, 
 	(SELECT COUNT(game.id) 
 	FROM game
 	WHERE set_id = $1 AND game.winner_id = $2
 	) AS cur_games 
 	FROM set WHERE id = $1; `
-	err = db.QueryRow(sqlStatement, request.Set, request.WinnerID).Scan(&matchID, &maxGames, &currGames)
+	err = db.QueryRow(sqlStatement, request.Set, request.WinnerID).Scan(&maxGames, &currGames)
 	if handleError(err, c) {
 		return
 	}
@@ -391,7 +402,6 @@ func scoreMatch(c *gin.Context) {
 	println("Current match over creating new result")
 
 	// create new match result with winner
-
 	sqlStatement = `INSERT INTO match_result (match_id, winner_id)
 	VALUES
 	($1, $2)`
@@ -402,13 +412,6 @@ func scoreMatch(c *gin.Context) {
 	c.Status(http.StatusOK)
 
 }
-
-// Get current most recent set
-// `SELECT * FROM set
-// WHERE number = (
-//    SELECT MAX (number)
-//    FROM set
-// WHERE match_id = 11);`
 
 func newMatchInComp(c *gin.Context) {
 	compID := c.Param("id")
@@ -447,33 +450,6 @@ func newMatchInComp(c *gin.Context) {
 		Match  Match         `json:"match"`
 	}
 
-	// // Create a new set, game and point
-	// sqlStatement = `WITH new_set AS (
-	// 	INSERT INTO set (match_id, number, num_games)
-	// 	VALUES
-	// 	($1, 1, $2)
-	// 	RETURNING id
-	// 	),
-	// 	new_game AS (
-	// 	INSERT INTO game (set_id, number, server_id, num_points)
-	// 	VALUES
-	// 	( (SELECT id FROM new_set), 1, $3, $4)
-	// 	RETURNING id
-	// 	),
-	// 	new_point AS (
-	// 	INSERT into point (number, game_id)
-	// 	VALUES
-	// 	(1,  (SELECT id FROM new_game) )
-	// 	RETURNING number
-	// 	)
-	// 	SELECT new_point.number as pid, new_game.id as gid, new_set.id as sid
-	// 	FROM new_point, new_game, new_set`
-
-	// err = db.QueryRow(sqlStatement, match.MatchID, request.NumGames, request.ServerID, request.NumPoints).Scan(&response.Point, &response.Game, &response.Set)
-	// if handleError(err, c) {
-	// 	return
-	// }
-
 	res := newSetGamePoint(c, match.MatchID, request.ServerID, 1, request.NumPoints, request.NumGames)
 	if res == nil {
 		return
@@ -486,29 +462,12 @@ func newMatchInComp(c *gin.Context) {
 
 }
 
+// Creates a new set, game and point within the match
+//
+// Returns a Score Reponse containing the point number, game and set ID
 func newSetGamePoint(c *gin.Context, matchID, serverID, setNumber, numPoints, numGames int) *ScoreResponse {
-	// var response struct {
-	// 	Point int   `json:"pointNum"`
-	// 	Game  int   `json:"gameID"`
-	// 	Set   int   `json:"setID"`
-	// 	Match Match `json:"match"`
-	// }
 
 	var response ScoreResponse
-	// var setNumber int
-
-	// // Get new set number
-	// sqlStatement := `SELECT number+1 FROM set
-	// 	WHERE number = (
-	// 	SELECT MAX (number)
-	// 	FROM set
-	// 	WHERE match_id = $1)
-	// 	AND match_id = $1`
-	// err := db.QueryRow(sqlStatement, matchID).Scan(&setNumber)
-	// if err != nil {
-	// 	println(err.Error())
-	// 	setNumber = 1
-	// }
 
 	// Create a new set, game and point
 	sqlStatement := `WITH new_set AS (
@@ -540,6 +499,9 @@ func newSetGamePoint(c *gin.Context, matchID, serverID, setNumber, numPoints, nu
 	return &response
 }
 
+// Endpoint /matches/:id
+//
+// Returns a match object from the provided endpoint
 func getMatchFromID(c *gin.Context) {
 	matchID := c.Param("id")
 
@@ -569,6 +531,9 @@ func getMatchFromID(c *gin.Context) {
 	c.JSON(http.StatusOK, match)
 }
 
+// Endpoint: /comps/:id/matches
+//
+// Return all matches within the comp
 func getCompMatches(c *gin.Context) {
 	compID := c.Param("id")
 
@@ -602,6 +567,9 @@ func getCompMatches(c *gin.Context) {
 	c.JSON(http.StatusOK, matchResponse)
 }
 
+// Get player objects for the specified ID's
+//
+// Returns 2 pointers to each player, in the order of the specified ID's
 func getPlayersFromMatch(p1 int, p2 int) (*Player, *Player) {
 	var player1, player2 *Player
 
@@ -627,6 +595,9 @@ func getPlayersFromMatch(p1 int, p2 int) (*Player, *Player) {
 	return player1, player2
 }
 
+// Endpoint: /comps/:id
+//
+// Return comp object from comp ID
 func getCompWithID(c *gin.Context) {
 	id := c.Param("id")
 
@@ -641,6 +612,9 @@ func getCompWithID(c *gin.Context) {
 	c.JSON(http.StatusOK, comp)
 }
 
+// Endpoint: /comps
+//
+// Returns an array of comp objects, only comps that are public
 func getPublicComps(c *gin.Context) {
 
 	sqlStatement := `SELECT id, comp_name, is_private FROM comp where is_private=false;`
@@ -649,6 +623,9 @@ func getPublicComps(c *gin.Context) {
 
 }
 
+// Endpoint: /players/:id/comps
+//
+// Returns an array of comp objects that the player is registered in
 func getPlayerComps(c *gin.Context) {
 
 	id := c.Param("id")
@@ -659,6 +636,9 @@ func getPlayerComps(c *gin.Context) {
 
 }
 
+// Returns an array of competitions
+//
+// Handles error inside, status will reflect the success of the query
 func getCompetitions(c *gin.Context, sqlStatement string, args ...interface{}) {
 
 	rows, err := db.Query(sqlStatement, args...)
@@ -680,6 +660,9 @@ func getCompetitions(c *gin.Context, sqlStatement string, args ...interface{}) {
 	c.JSON(http.StatusOK, compResponse)
 }
 
+// Endpoint: /comps/:id/players
+//
+// Return an array of player objects within the specified comp
 func getCompPlayers(c *gin.Context) {
 	id := c.Param("id")
 	sqlStatement := `SELECT id, first_name, last_name FROM player 
@@ -688,12 +671,19 @@ func getCompPlayers(c *gin.Context) {
 	queryPlayers(c, sqlStatement, id)
 }
 
+// Endpoint: /players
+//
+// Return an array of all player objects
 func getPlayers(c *gin.Context) {
 
 	sqlStatement := `SELECT id, first_name, last_name FROM player;`
 	queryPlayers(c, sqlStatement)
 }
 
+// Helper function
+//
+// For returning an array of players with the same fields,
+// Provide a special query and args for query
 func queryPlayers(c *gin.Context, sqlStatement string, args ...interface{}) {
 
 	rows, err := db.Query(sqlStatement, args...)
@@ -714,6 +704,9 @@ func queryPlayers(c *gin.Context, sqlStatement string, args ...interface{}) {
 	c.JSON(http.StatusOK, playersRes)
 }
 
+// Endpoint: /player/:id
+//
+// Returns a player object from the specified ID
 func getPlayerWithID(c *gin.Context) {
 	id := c.Param("id")
 
@@ -727,6 +720,10 @@ func getPlayerWithID(c *gin.Context) {
 	c.JSON(http.StatusOK, player)
 }
 
+// Endpoint: /login
+//
+// If email and password match a record in the DB a new token is created
+// The player ID and token is returned
 func login(c *gin.Context) {
 	var loginDetails LoginDetails
 	var err error
@@ -766,6 +763,9 @@ func login(c *gin.Context) {
 	c.JSON(http.StatusOK, retObj)
 }
 
+// Endpoint: /logout
+//
+// Deletes the token from the database to prevent further use
 func logout(c *gin.Context) {
 	token := c.GetHeader("Token")
 	id := c.Query("id")
@@ -777,6 +777,9 @@ func logout(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+// Endpoint: /register
+//
+// Creates a new player in the database if email does not already exist
 func registerPlayer(c *gin.Context) {
 	var newPlayer PlayerRegister
 	var err error
