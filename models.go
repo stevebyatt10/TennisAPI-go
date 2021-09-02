@@ -87,3 +87,12 @@ type ScoreResponse struct {
 	Game  int `json:"gameID"`
 	Set   int `json:"setID"`
 }
+
+type PointStats struct {
+	Player       *Player `json:"player"`
+	Faults       int     `json:"faults"`
+	DoubleFaults int     `json:"doubleFaults"`
+	Lets         int     `json:"lets"`
+	Aces         int     `json:"aces"`
+	Errors       int     `json:"errors"`
+}

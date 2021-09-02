@@ -56,6 +56,7 @@ func main() {
 
 		matchesGroup.GET("/:id", getMatchFromID)
 		matchesGroup.POST("/:id/score", scoreMatch)
+		matchesGroup.GET("/:id/stats", getMatchStats)
 
 	}
 
@@ -74,6 +75,8 @@ func main() {
 
 			compIdGroup.GET("/matches", getCompMatches)
 			compIdGroup.POST("/matches", newMatchInComp)
+
+			compIdGroup.GET("/table", getCompTable)
 		}
 
 	}
