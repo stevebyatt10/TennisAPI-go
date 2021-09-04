@@ -32,6 +32,7 @@ func connectToDB() {
 		host, port, user, password, dbname)
 	var err error
 	db, err = sql.Open("postgres", psqlInfo)
+	db.SetMaxOpenConns(0)
 	if err != nil {
 		panic(err)
 	}
