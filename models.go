@@ -33,12 +33,6 @@ type PlayerToken struct {
 	Token    string `json:"token"`
 }
 
-type CompCreateDetails struct {
-	CompName  string `form:"comp_name" binding:"required"`
-	IsPrivate *bool  `form:"is_private" binding:"required"`
-	CreatorId int    `form:"creator_id" binding:"required"`
-}
-
 type ErrorResposne struct {
 	Message string `json:"error"`
 }
@@ -47,19 +41,19 @@ type Competition struct {
 	Id        *int    `json:"id"`
 	Name      *string `json:"name"`
 	IsPrivate *bool   `json:"isPrivate"`
+	CreatorID *int    `json:"creatorID"`
 }
 
 type CompetitionResponse struct {
-	Competitions []Competition `json:"compeitions"`
+	Competitions []Competition `json:"competitions"`
 }
 
 type InviteResponse struct {
 	Invites []Invite `json:"invites"`
 }
 type Invite struct {
-	CompID     int    `json:"compID"`
-	CompName   string `json:"compName"`
-	FromPlayer Player `json:"fromPlayer"`
+	Comp       Competition `json:"comp"`
+	FromPlayer Player      `json:"fromPlayer"`
 }
 
 type Player struct {
@@ -88,11 +82,41 @@ type ScoreResponse struct {
 	Set   int `json:"setID"`
 }
 
-type PointStats struct {
+type PlayerMatchStats struct {
 	Player       *Player `json:"player"`
 	Faults       int     `json:"faults"`
 	DoubleFaults int     `json:"doubleFaults"`
 	Lets         int     `json:"lets"`
 	Aces         int     `json:"aces"`
 	Errors       int     `json:"errors"`
+}
+
+type Point struct {
+	Number     int        `json:"number"`
+	WinnerID   int        `json:"winnerID"`
+	ServerID   int        `json:"serverID"`
+	ReceiverID int        `json:"receiverID"`
+	Stats      PointStats `json:"stats"`
+}
+
+type PointStats struct {
+	Faults      int  `json:"faults"`
+	DoubleFault bool `json:"doubleFault"`
+	Lets        int  `json:"lets"`
+	Ace         bool `json:"ace"`
+	Error       bool `json:"error"`
+}
+
+type Game struct {
+	WinnerID int     `json:"winnerID"`
+	GameID   int     `json:"id"`
+	Number   int     `json:"number"`
+	Points   []Point `json:"points"`
+}
+
+type Set struct {
+	WinnerID int    `json:"winnerID"`
+	SetID    int    `json:"id"`
+	Number   int    `json:"number"`
+	Games    []Game `json:"games"`
 }

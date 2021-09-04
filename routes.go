@@ -27,24 +27,29 @@ import (
 
 // Endpoint: players/:id/invite
 //
-// Creates a new invite to competition for the specified player
-func inviteToComp(c *gin.Context) {
-	inviteID := c.Param("id")
-	fromID := c.Query("inviteFrom")
-	compID := c.Query("compID")
+// Creates a new invite to competition for the specified players
+func invitePlayersToComp(c *gin.Context) {
+	CompID := c.Param("id")
 
-	if fromID == "" || compID == "" {
-		c.AbortWithStatus(http.StatusBadRequest)
+	var request struct {
+		FromID    int   `json:"fromID" binding:"required"`
+		PlayerIDs []int `json:"playerIDs" binding:"required"`
+	}
+
+	if !tryGetRequest(c, &request) {
 		return
 	}
 
-	sqlStatement := `INSERT INTO comp_reg (player_id, comp_id, invite_from, pending)
-	VALUES ($1, $2, $3, true)`
-	_, err := db.Exec(sqlStatement, inviteID, compID, fromID)
-	if err != nil {
-		println(err)
-		c.AbortWithStatus(http.StatusInternalServerError)
-		return
+	for _, ID := range request.PlayerIDs {
+
+		sqlStatement := `INSERT INTO comp_reg (player_id, comp_id, invite_from, pending)
+		VALUES ($1, $2, $3, true)`
+		_, err := db.Exec(sqlStatement, ID, CompID, request.FromID)
+		if err != nil {
+			println(err)
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
 	}
 
 	c.Status(http.StatusOK)
@@ -57,7 +62,7 @@ func inviteToComp(c *gin.Context) {
 func getCompInvites(c *gin.Context) {
 	playerID := c.Param("id")
 
-	sqlStatement := `SELECT invite_from, first_name, last_name, comp_name, comp.id FROM comp_reg 
+	sqlStatement := `SELECT invite_from, first_name, last_name, comp_name, comp.id, comp.is_private FROM comp_reg 
 	LEFT JOIN comp ON comp.id = comp_reg.comp_id
 	LEFT JOIN player on player.id = comp_reg.invite_from
 	WHERE comp_reg.player_id = $1 AND pending=true;`
@@ -78,7 +83,7 @@ func getCompInvites(c *gin.Context) {
 	invRes := InviteResponse{Invites: []Invite{}}
 	for rows.Next() {
 		var invite Invite
-		err = rows.Scan(&invite.FromPlayer.Id, &invite.FromPlayer.FirstName, &invite.FromPlayer.LastName, &invite.CompName, &invite.CompID)
+		err = rows.Scan(&invite.FromPlayer.Id, &invite.FromPlayer.FirstName, &invite.FromPlayer.LastName, &invite.Comp.Name, &invite.Comp.Id, &invite.Comp.IsPrivate)
 		if err != nil {
 			println(err.Error())
 		}
@@ -142,8 +147,11 @@ func joinComp(playerId int, compId int) error {
 //
 // Cretes a new competition in the DB and returns the comp id
 func createComp(c *gin.Context) {
-	var compDetails CompCreateDetails
-
+	var compDetails struct {
+		CompName  string `form:"comp_name" binding:"required"`
+		IsPrivate *bool  `form:"is_private" binding:"required"`
+		CreatorId int    `form:"creator_id" binding:"required"`
+	}
 	if err := c.ShouldBind(&compDetails); err != nil {
 		println(err.Error())
 		c.Status(http.StatusBadRequest)
@@ -153,22 +161,24 @@ func createComp(c *gin.Context) {
 	sqlStatement := `INSERT INTO comp (comp_name, is_private, creator_id)
 		VALUES ($1, $2, $3)
 		RETURNING id`
-	var id int
-	err := db.QueryRow(sqlStatement, compDetails.CompName, *compDetails.IsPrivate, compDetails.CreatorId).Scan(&id)
+	var comp Competition
+	err := db.QueryRow(sqlStatement, compDetails.CompName, *compDetails.IsPrivate, compDetails.CreatorId).Scan(&comp.Id)
 	if err != nil {
 		println(err.Error())
 		c.Status(http.StatusInternalServerError)
 		return
 	}
 
-	err = joinComp(compDetails.CreatorId, id)
+	err = joinComp(compDetails.CreatorId, *comp.Id)
 	if err != nil {
 		println(err.Error())
 		c.Status(http.StatusInternalServerError)
 		return
 	}
-
-	c.Status(http.StatusCreated)
+	comp.Name = &compDetails.CompName
+	comp.IsPrivate = compDetails.IsPrivate
+	comp.CreatorID = &compDetails.CreatorId
+	c.JSON(http.StatusCreated, comp)
 
 }
 
@@ -416,8 +426,6 @@ func newMatchInComp(c *gin.Context) {
 	compID := c.Param("id")
 
 	var request struct {
-		Player1ID  int       `form:"player1ID" binding:"required"`
-		Player2ID  int       `form:"player2ID" binding:"required"`
 		StartDate  time.Time `form:"startDate" binding:"required"`
 		ServerID   int       `form:"serverID" binding:"required"`
 		ReceiverID int       `form:"receiverID" binding:"required"`
@@ -443,7 +451,7 @@ func newMatchInComp(c *gin.Context) {
 		`
 
 	var match Match
-	err := db.QueryRow(sqlStatement, compID, request.StartDate, request.NumSets, request.Player1ID, request.Player2ID).Scan(&match.MatchID)
+	err := db.QueryRow(sqlStatement, compID, request.StartDate, request.NumSets, request.ServerID, request.ReceiverID).Scan(&match.MatchID)
 	if handleError(err, c) {
 		return
 	}
@@ -538,7 +546,7 @@ func getMatchFromID(c *gin.Context) {
 
 // Endpoint: /matches/:id/stats
 //
-// Get a count of all point stats for each player
+// Get a count of all point stats for each player and stats for each point, game and set
 func getMatchStats(c *gin.Context) {
 	param := c.Param("id")
 	matchID, err := strconv.Atoi(param)
@@ -547,12 +555,13 @@ func getMatchStats(c *gin.Context) {
 	}
 
 	var response struct {
-		Player1 PointStats `json:"player1"`
-		Player2 PointStats `json:"player2"`
+		Sets    []Set            `json:"sets"`
+		Player1 PlayerMatchStats `json:"player1"`
+		Player2 PlayerMatchStats `json:"player2"`
 	}
 
+	// Get player stats
 	p1, p2 := getPlayersFromMatch(matchID)
-	println(matchID, p1.Id, p2.Id)
 
 	sqlStatement := `SELECT SUM(p.faults) as faults,
 	Count(CASE WHEN p.faults>1 THEN 1 END ) as double_faults, 
@@ -573,7 +582,7 @@ func getMatchStats(c *gin.Context) {
 	}
 
 	for rows.Next() {
-		var pstats PointStats
+		var pstats PlayerMatchStats
 		var id int
 		err = rows.Scan(&pstats.Faults, &pstats.DoubleFaults, &pstats.Lets, &pstats.Aces, &pstats.Errors, &id)
 		if err != nil {
@@ -600,7 +609,8 @@ func getCompMatches(c *gin.Context) {
 
 	sqlStatement := `SELECT id, start_date, end_date, winner_id FROM match
 	LEFT JOIN match_result ON match.id = match_result.match_id
-	WHERE match.comp_id= $1`
+	WHERE match.comp_id= $1 and match_result.winner_id is not null
+	ORDER BY end_date DESC`
 	rows, err := db.Query(sqlStatement, compID)
 
 	if handleError(err, c) {
@@ -694,18 +704,23 @@ func getCompTable(c *gin.Context) {
 	p.id, first_name, last_name,
 	(SELECT count(player_id)
 	FROM match_participant
-	LEFT JOIN match ON match_id = match.id
-	LEFT JOIN comp on match.comp_id = comp.id
+	JOIN match ON match_id = match.id
+	JOIN comp on match.comp_id = comp.id
 	JOIN match_result mr ON mr.match_id =match.id
 	where comp.id = $1 and player_id = p.id) AS played,  
-	COUNT(winner_id) as wins 
+	(SELECT count(winner_id)
+	FROM match_result
+	JOIN match ON match_id = match.id
+	JOIN comp on match.comp_id = comp.id
+	where comp.id = 1 and winner_id = p.id) AS wins  
 	FROM player p
-	LEFT OUTER JOIN match_result mr ON mr.winner_id = p.id
-	LEFT JOIN match m ON mr.match_id = m.id
-	LEFT JOIN comp c ON c.id = m.comp_id
+		JOIN match_participant mp on mp.player_id = p.id
+		JOIN match m ON mp.match_id = m.id
+	JOIN comp c ON c.id = m.comp_id
+		JOIN match_result mr on mr.match_id = m.id 
 	WHERE c.id = $1
 	GROUP BY p.id
-	ORDER BY count(winner_id) DESC, p.id
+	ORDER BY  wins DESC
 	`
 
 	rows, err := db.Query(sqlStatement, id)
@@ -733,7 +748,7 @@ func getCompTable(c *gin.Context) {
 // Returns an array of comp objects, only comps that are public
 func getPublicComps(c *gin.Context) {
 
-	sqlStatement := `SELECT id, comp_name, is_private FROM comp where is_private=false;`
+	sqlStatement := `SELECT id, comp_name, is_private, creator_id  FROM comp where is_private=false;`
 
 	getCompetitions(c, sqlStatement)
 
@@ -746,7 +761,9 @@ func getPlayerComps(c *gin.Context) {
 
 	id := c.Param("id")
 
-	sqlStatement := `SELECT id, comp_name, is_private FROM comp LEFT JOIN comp_reg ON comp.id = comp_reg.comp_id where comp_reg.player_id = $1;`
+	sqlStatement := `SELECT id, comp_name, is_private, creator_id  FROM comp 
+	LEFT JOIN comp_reg ON comp.id = comp_reg.comp_id 
+	where comp_reg.player_id = $1 and (pending=false or pending is null);`
 
 	getCompetitions(c, sqlStatement, id)
 
@@ -766,7 +783,7 @@ func getCompetitions(c *gin.Context, sqlStatement string, args ...interface{}) {
 	compResponse := CompetitionResponse{Competitions: []Competition{}}
 	for rows.Next() {
 		var compeition Competition
-		err = rows.Scan(&compeition.Id, &compeition.Name, &compeition.IsPrivate)
+		err = rows.Scan(&compeition.Id, &compeition.Name, &compeition.IsPrivate, &compeition.CreatorID)
 		if err != nil {
 			println(err.Error())
 		}
