@@ -44,7 +44,6 @@ func main() {
 		playersGroup.GET("/:id", getPlayerWithID)
 
 		playersGroup.GET("/:id/comps", getPlayerComps)
-		playersGroup.POST("/:id/invite", inviteToComp)
 		playersGroup.GET("/:id/invite", getCompInvites)
 		playersGroup.PUT("/:id/invite/:compid", updateCompInvite)
 
@@ -75,6 +74,8 @@ func main() {
 
 			compIdGroup.GET("/matches", getCompMatches)
 			compIdGroup.POST("/matches", newMatchInComp)
+
+			compIdGroup.POST("/invite", invitePlayersToComp)
 
 			compIdGroup.GET("/table", getCompTable)
 		}
