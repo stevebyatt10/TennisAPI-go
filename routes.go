@@ -298,9 +298,9 @@ func scoreMatch(c *gin.Context) {
 
 	var newServer int
 	// get alternating server
-	sqlStatement = `SELECT player_id FROM match_participant
-				WHERE match_id = $1 AND player_id != $2`
-	err = db.QueryRow(sqlStatement, matchID, currentServerID).Scan(&newServer)
+	sqlStatement = `SELECT receiver_id FROM game
+	WHERE id = $1`
+	err = db.QueryRow(sqlStatement, request.Game).Scan(&newServer)
 	if handleError(err, c) {
 		return
 	}
@@ -318,7 +318,6 @@ func scoreMatch(c *gin.Context) {
 		set.number+1 as new_number, 
 		num_points
 		FROM set 
-		LEFT JOIN match ON match_id = match.id
 		LEFT JOIN game ON set_id = game.set_id
 		WHERE set.id = $1
 		LIMIT 1)
@@ -499,13 +498,13 @@ func newSetGamePoint(c *gin.Context, matchID, serverID, receiverID, setNumber, n
 		new_point AS (
 		INSERT into point (number, game_id, server_id)
 		VALUES
-		(1,  (SELECT id FROM new_game), $7 )
+		(1,  (SELECT id FROM new_game), $4 )
 		RETURNING number
 		)
 		SELECT new_point.number as pid, new_game.id as gid, new_set.id as sid
 		FROM new_point, new_game, new_set`
 
-	err := db.QueryRow(sqlStatement, matchID, setNumber, numGames, serverID, receiverID, numPoints, receiverID).Scan(&response.Point, &response.Game, &response.Set)
+	err := db.QueryRow(sqlStatement, matchID, setNumber, numGames, serverID, receiverID, numPoints).Scan(&response.Point, &response.Game, &response.Set)
 	if handleError(err, c) {
 		return nil
 	}
