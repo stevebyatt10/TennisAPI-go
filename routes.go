@@ -15,7 +15,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -69,15 +68,8 @@ func getCompInvites(c *gin.Context) {
 
 	rows, err := db.Query(sqlStatement, playerID)
 
-	if err != nil {
-		println(err.Error())
-		if err == sql.ErrNoRows {
-			c.Status(http.StatusNoContent)
-			return
-		} else {
-			c.AbortWithStatus(http.StatusInternalServerError)
-			return
-		}
+	if handleError(err, c) {
+		return
 	}
 
 	invRes := InviteResponse{Invites: []Invite{}}
@@ -259,8 +251,8 @@ func scoreMatch(c *gin.Context) {
 		if handleError(err, c) {
 			return
 		}
-		response.Game = request.Game
-		response.Set = request.Set
+		response.Game = &request.Game
+		response.Set = &request.Set
 		c.JSON(http.StatusOK, response)
 		return
 	}
@@ -343,7 +335,7 @@ func scoreMatch(c *gin.Context) {
 		if handleError(err, c) {
 			return
 		}
-		response.Set = request.Set
+		response.Set = &request.Set
 		c.JSON(http.StatusOK, response)
 		return
 	}
@@ -417,7 +409,7 @@ func scoreMatch(c *gin.Context) {
 		return
 	}
 
-	c.Status(http.StatusOK)
+	c.JSON(http.StatusOK, response)
 
 }
 

@@ -77,9 +77,9 @@ type Match struct {
 }
 
 type ScoreResponse struct {
-	Point int `json:"pointNum"`
-	Game  int `json:"gameID"`
-	Set   int `json:"setID"`
+	Point *int `json:"pointNum"`
+	Game  *int `json:"gameID"`
+	Set   *int `json:"setID"`
 }
 
 type PlayerMatchStats struct {
