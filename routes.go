@@ -314,17 +314,16 @@ func scoreMatch(c *gin.Context) {
 		sqlStatement = `WITH ret_new_game AS 
 		(
 		WITH new_game AS (SELECT
-		set.id as new_id,
-		set.number+1 as new_number, 
+		set_id as set_id,
+		number+1 as new_number, 
 		num_points
-		FROM set 
-		LEFT JOIN game ON set_id = game.set_id
-		WHERE set.id = $1
+		FROM game 
+		WHERE game.id = $1
 		LIMIT 1)
 		INSERT INTO game (set_id, number, server_id, receiver_id, num_points)
 		VALUES
 		( 
-		(SELECT new_id FROM new_game),
+		(SELECT set_id FROM new_game),
 		(SELECT new_number FROM new_game),
 		$2,
 		$3,
@@ -340,7 +339,7 @@ func scoreMatch(c *gin.Context) {
 
 		println("Created new game and new point")
 
-		err := db.QueryRow(sqlStatement, request.Set, newServer, currentServerID).Scan(&response.Point, &response.Game)
+		err := db.QueryRow(sqlStatement, request.Game, newServer, currentServerID).Scan(&response.Point, &response.Game)
 		if handleError(err, c) {
 			return
 		}
@@ -365,14 +364,15 @@ func scoreMatch(c *gin.Context) {
 
 	println("Checking if current match is over")
 
-	var numSets, currSets int
+	var numSets, currSets, newSetNumber int
 	sqlStatement = `SELECT num_sets,
 	(SELECT COUNT(set.id)
 	FROM set
 	WHERE match_id = $1 AND set.winner_id = $2
-	) AS curr_sets
+	) AS curr_sets,
+	(SELECT number+1 FROM set WHERE id = $3) as newSetNumber
 	FROM match WHERE id = $1; `
-	err = db.QueryRow(sqlStatement, matchID, request.WinnerID).Scan(&numSets, &currSets)
+	err = db.QueryRow(sqlStatement, matchID, request.WinnerID, request.Set).Scan(&numSets, &currSets, &newSetNumber)
 	if handleError(err, c) {
 		return
 	}
@@ -385,7 +385,7 @@ func scoreMatch(c *gin.Context) {
 		println("Get alternating server")
 
 		// Create new set, game, point
-		res := newSetGamePoint(c, matchID, newServer, currentServerID, request.Set+1, maxGamePoints, maxGames)
+		res := newSetGamePoint(c, matchID, newServer, currentServerID, newSetNumber, maxGamePoints, maxGames)
 		if res == nil {
 			return
 		}
