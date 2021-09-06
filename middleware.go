@@ -24,20 +24,21 @@ func ensureAuthenticated() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.GetHeader("Token")
 		if token == "" {
-			logNotAuthenticated(c)
+			handleNotAuthenticated(c)
 			return
 		}
-		sqlStatement := `SELECT token FROM player_token WHERE token=$1 LIMIT 1;`
-		row := db.QueryRow(sqlStatement, token)
-		if row.Err() != nil {
-			println(row.Err().Error())
-			logNotAuthenticated(c)
+		var tokenExists bool
+		sqlStatement := `SELECT EXISTS(SELECT token FROM player_token WHERE token=$1 LIMIT 1);`
+		err := db.QueryRow(sqlStatement, token).Scan(&tokenExists)
+		if err != nil || !tokenExists {
+			println(err.Error())
+			handleNotAuthenticated(c)
 			return
 		}
 	}
 }
 
-func logNotAuthenticated(c *gin.Context) {
+func handleNotAuthenticated(c *gin.Context) {
 	ip, _ := c.RemoteIP()
 	println(ip.String(), "not autenticated")
 	c.AbortWithStatus(http.StatusUnauthorized)
