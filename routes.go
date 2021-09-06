@@ -558,7 +558,6 @@ func getMatchStats(c *gin.Context) {
 	Count(CASE WHEN p.faults>1 THEN 1 END ) as double_faults, 
 	SUM(p.lets) as lets, 
 	Count(CASE WHEN p.ace THEN 1 END) as aces,
-	Count(CASE WHEN p.unforced_error THEN 1 END) as errors,
 	game.server_id 
 	FROM point p
 	LEFT JOIN game ON game_id = game.id
@@ -575,7 +574,7 @@ func getMatchStats(c *gin.Context) {
 	for rows.Next() {
 		var pstats PlayerMatchStats
 		var id int
-		err = rows.Scan(&pstats.Faults, &pstats.DoubleFaults, &pstats.Lets, &pstats.Aces, &pstats.Errors, &id)
+		err = rows.Scan(&pstats.Faults, &pstats.DoubleFaults, &pstats.Lets, &pstats.Aces, &id)
 		if err != nil {
 			println(err.Error())
 		}
@@ -585,6 +584,33 @@ func getMatchStats(c *gin.Context) {
 		} else {
 			pstats.Player = p2
 			response.Player2 = pstats
+		}
+	}
+
+	// Count errors
+	sqlStatement = `SELECT Count(CASE WHEN point.unforced_error THEN 1 END), player.id from player
+	LEFT JOIN match_participant mp on mp.player_id = id
+	LEFT JOIN set ON set.match_id = mp.match_id
+	LEFT JOIN game ON set.id = game.set_id
+	LEFT JOIN point ON point.game_id = game.id
+	WHERE point.winner_id != player.id and mp.match_id = $1
+	GROUP BY player.id;`
+
+	rows, err = db.Query(sqlStatement, matchID)
+	if handleError(err, c) {
+		return
+	}
+
+	for rows.Next() {
+		var errors, id int
+		err = rows.Scan(&errors, &id)
+		if err != nil {
+			println(err.Error())
+		}
+		if p1.Id == id {
+			response.Player1.Errors = errors
+		} else {
+			response.Player2.Errors = errors
 		}
 	}
 
