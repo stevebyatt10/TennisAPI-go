@@ -177,7 +177,6 @@ func createComp(c *gin.Context) {
 // Endpoint: /matches/:id/score
 //
 // Updates the score for the match, creates new points, games or sets as necessary
-//
 // Returns a Score Object if game is still in progress, returns empty body when game finished
 func scoreMatch(c *gin.Context) {
 
@@ -188,9 +187,7 @@ func scoreMatch(c *gin.Context) {
 	}
 
 	var request struct {
-		Point         int   `form:"pointNum" binding:"required"`
-		Game          int   `form:"gameID" binding:"required"`
-		Set           int   `form:"setID" binding:"required"`
+		PointNum      int   `form:"pointNum" binding:"required"`
 		Faults        int   `form:"faults"`
 		Lets          int   `form:"lets"`
 		Ace           *bool `form:"ace"`
@@ -198,9 +195,13 @@ func scoreMatch(c *gin.Context) {
 		WinnerID      int   `form:"winnerID" binding:"required"`
 	}
 
+	var response ScoreResponse
+
 	if !tryGetRequest(c, &request) {
 		return
 	}
+
+	println("Updating current point")
 
 	// Update the current point
 	sqlStatement := `UPDATE point SET 
@@ -209,205 +210,100 @@ func scoreMatch(c *gin.Context) {
 	ace=$5,
 	unforced_error=$6,
 	winner_id=$7
-	WHERE number=$1 AND game_id=$2`
-	_, err = db.Exec(sqlStatement, request.Point, request.Game, request.Faults, request.Lets, request.Ace, request.UnforcedError, request.WinnerID)
+	WHERE number=$1 AND match_id=$2`
+	_, err = db.Exec(sqlStatement, request.PointNum, matchID, request.Faults, request.Lets, request.Ace, request.UnforcedError, request.WinnerID)
 	if handleError(err, c) {
 		return
 	}
 
-	println("current point updated")
+	println("Checking if match is over")
 
-	// See if current game is over
-
-	println("Checking if current game is over")
-
-	var currGamePoints, currentServerID, maxGamePoints int
-	sqlStatement = `SELECT server_id, num_points, 
-	(SELECT COUNT(point.number) 
-	FROM point 
-	WHERE game_id = $1 AND point.winner_id = $2
-	) AS cur_points 
-	FROM game WHERE id = $1; `
-	err = db.QueryRow(sqlStatement, request.Game, request.WinnerID).Scan(&currentServerID, &maxGamePoints, &currGamePoints)
+	// Get players wins
+	sqlStatement = `
+	SELECT player.id, (SELECT COUNT(winner_id) FROM point
+			WHERE winner_id = player.id and match_id = $1) as wins
+	FROM player
+	JOIN match_participant mp ON player_id = player.id
+	WHERE mp.match_id = $1;`
+	rows, err := db.Query(sqlStatement, matchID)
 	if handleError(err, c) {
 		return
 	}
 
-	var response ScoreResponse
-
-	// Game not over
-	if currGamePoints < maxGamePoints {
-
-		println("Current game still going, creating new point")
-		// new point, same game
-		// return new pointNum, same game ID and same set ID
-
-		sqlStatement = `INSERT INTO point (number, game_id, server_id)
-		VALUES
-		($1, $2, $3)
-		returning number
-		`
-		err := db.QueryRow(sqlStatement, request.Point+1, request.Game, currentServerID).Scan(&response.Point)
-		if handleError(err, c) {
-			return
-		}
-		response.Game = &request.Game
-		response.Set = &request.Set
-		c.JSON(http.StatusOK, response)
-		return
-	}
-
-	// Game is over
-	//
-	// 	set game winner to point winner
-	sqlStatement = `UPDATE game SET 
-	winner_id=$1
-	WHERE id=$2`
-	_, err = db.Exec(sqlStatement, request.WinnerID, request.Game)
-	if handleError(err, c) {
-		return
-	}
-
-	println("Current game is over, updated game winner")
-
-	// Check current set
-
-	// 	see how many games winner has in set
-
-	println("Checking if current set is over")
-
-	var currGames, maxGames int
-	sqlStatement = `SELECT num_games, 
-	(SELECT COUNT(game.id) 
-	FROM game
-	WHERE set_id = $1 AND game.winner_id = $2
-	) AS cur_games 
-	FROM set WHERE id = $1; `
-	err = db.QueryRow(sqlStatement, request.Set, request.WinnerID).Scan(&maxGames, &currGames)
-	if handleError(err, c) {
-		return
-	}
-
-	var newServer int
-	// get alternating server
-	sqlStatement = `SELECT receiver_id FROM game
-	WHERE id = $1`
-	err = db.QueryRow(sqlStatement, request.Game).Scan(&newServer)
-	if handleError(err, c) {
-		return
-	}
-
-	// Set not over
-	if currGames < maxGames {
-
-		println("Current set is not over")
-
-		// new game under set, set server to other player
-		sqlStatement = `WITH ret_new_game AS 
-		(
-		WITH new_game AS (SELECT
-		set_id as set_id,
-		number+1 as new_number, 
-		num_points
-		FROM game 
-		WHERE game.id = $1
-		LIMIT 1)
-		INSERT INTO game (set_id, number, server_id, receiver_id, num_points)
-		VALUES
-		( 
-		(SELECT set_id FROM new_game),
-		(SELECT new_number FROM new_game),
-		$2,
-		$3,
-		(SELECT num_points FROM new_game) 
-		)
-		RETURNING id)
-		INSERT INTO POINT (number, game_id, server_id)
-		VALUES
-		(1, ( SELECT id FROM ret_new_game ), $2 )
-		RETURNING number, game_id
-		;`
-		// return new pointNum, new game ID and same set ID
-
-		println("Created new game and new point")
-
-		err := db.QueryRow(sqlStatement, request.Game, newServer, currentServerID).Scan(&response.Point, &response.Game)
-		if handleError(err, c) {
-			return
-		}
-		response.Set = &request.Set
-		c.JSON(http.StatusOK, response)
-		return
-	}
-
-	println("Current set is over, update set winner")
-
-	// // 	if set is over
-	// set set winner to point winner
-	sqlStatement = `UPDATE set SET 
-		winner_id=$1
-		WHERE id=$2`
-	_, err = db.Exec(sqlStatement, request.WinnerID, request.Set)
-	if handleError(err, c) {
-		return
-	}
-
-	// 	see how many sets winner has in match
-
-	println("Checking if current match is over")
-
-	var numSets, currSets, newSetNumber int
-	sqlStatement = `SELECT num_sets,
-	(SELECT COUNT(set.id)
-	FROM set
-	WHERE match_id = $1 AND set.winner_id = $2
-	) AS curr_sets,
-	(SELECT number+1 FROM set WHERE id = $3) as newSetNumber
-	FROM match WHERE id = $1; `
-	err = db.QueryRow(sqlStatement, matchID, request.WinnerID, request.Set).Scan(&numSets, &currSets, &newSetNumber)
-	if handleError(err, c) {
-		return
-	}
-
-	// if match not over
-	if currSets < numSets {
-
-		println("Current match is not over")
-
-		println("Get alternating server")
-
-		// Create new set, game, point
-		res := newSetGamePoint(c, matchID, newServer, currentServerID, newSetNumber, maxGamePoints, maxGames)
-		if res == nil {
-			return
+	var winnerWins, otherWins int
+	for rows.Next() {
+		var wins, id int
+		err = rows.Scan(&id, &wins)
+		if err != nil {
+			println(err.Error())
 		}
 
-		println("Created new set, game and point")
-
-		response = *res
-		c.JSON(http.StatusOK, response)
-		return
+		if id == request.WinnerID {
+			winnerWins = wins
+		} else {
+			otherWins = wins
+		}
 	}
 
-	// if match  over
+	// Get match info, points to win by, min points, server and receiver
+	sqlStatement = `SELECT min_points, win_by, server_id, receiver_id FROM point
+					JOIN match on point.match_id = match.id
+					WHERE point.match_id = $1 and number = $2`
 
-	println("Current match over creating new result")
-
-	// create new match result with winner
-	sqlStatement = `INSERT INTO match_result (match_id, winner_id)
-	VALUES
-	($1, $2)`
-	_, err = db.Exec(sqlStatement, matchID, request.WinnerID)
+	var curServer, curReceiver, minpoints, winBy int
+	err = db.QueryRow(sqlStatement, matchID, request.PointNum).Scan(&minpoints, &winBy, &curServer, &curReceiver)
 	if handleError(err, c) {
 		return
 	}
 
-	// Update match for end date
-	sqlStatement = `UPDATE match SET end_date=current_timestamp WHERE id = $1`
-	_, err = db.Exec(sqlStatement, matchID)
+	// Check if match over
+	if winnerWins >= minpoints {
+		dif := winnerWins - otherWins
+		if dif >= winBy {
+			// game over
+			// create new match result with winner
+			sqlStatement = `INSERT INTO match_result (match_id, winner_id)
+							VALUES
+							($1, $2)`
+			_, err = db.Exec(sqlStatement, matchID, request.WinnerID)
+			if handleError(err, c) {
+				return
+			}
+
+			// Update match for end date
+			sqlStatement = `UPDATE match SET end_date=current_timestamp WHERE id = $1`
+			_, err = db.Exec(sqlStatement, matchID)
+			if handleError(err, c) {
+				return
+			}
+
+			c.JSON(http.StatusOK, response)
+			return
+
+		}
+	}
+
+	// new point
+
+	var newServer, newReceiver int
+	// Swap server every 2 points
+	if request.PointNum%2 == 0 {
+		newServer = curReceiver
+		newReceiver = curServer
+	} else {
+		newServer = curServer
+		newReceiver = curReceiver
+	}
+
+	var newPointNum = request.PointNum + 1
+	sqlStatement = `INSERT INTO point (number, match_id, server_id, receiver_id)
+	VALUES ($1, $2, $3, $4)`
+	_, err = db.Exec(sqlStatement, newPointNum, matchID, newServer, newReceiver)
 	if handleError(err, c) {
 		return
 	}
+
+	response = ScoreResponse{Point: &newPointNum, NewServer: &newServer, LastPointWinnerPts: winnerWins, OtherPlayerPoints: otherWins}
 
 	c.JSON(http.StatusOK, response)
 
@@ -420,9 +316,8 @@ func newMatchInComp(c *gin.Context) {
 		StartDate  time.Time `form:"startDate" binding:"required"`
 		ServerID   int       `form:"serverID" binding:"required"`
 		ReceiverID int       `form:"receiverID" binding:"required"`
-		NumSets    int       `form:"numSets" binding:"required"`
-		NumGames   int       `form:"numGames" binding:"required"`
 		NumPoints  int       `form:"numPoints" binding:"required"`
+		WinBy      int       `form:"winBy"`
 	}
 
 	// Get query params into object
@@ -432,17 +327,16 @@ func newMatchInComp(c *gin.Context) {
 
 	// Create new match
 	sqlStatement := `
-		WITH new_match AS (INSERT INTO match (comp_id, start_date,  num_sets) VALUES ($1, $2, $3)
+		WITH new_match AS (INSERT INTO match (comp_id, start_date,  min_points, win_by) VALUES ($1, $2, $3, $4)
 		RETURNING id)
 		INSERT INTO match_participant
 		VALUES
-		( (SELECT id FROM new_match), $4),
-		( (SELECT id FROM new_match), $5)
+		( (SELECT id FROM new_match), $5),
+		( (SELECT id FROM new_match), $6)
 		RETURNING match_id
 		`
-
 	var match Match
-	err := db.QueryRow(sqlStatement, compID, request.StartDate, request.NumSets, request.ServerID, request.ReceiverID).Scan(&match.MatchID)
+	err := db.QueryRow(sqlStatement, compID, request.StartDate, request.NumPoints, request.WinBy, request.ServerID, request.ReceiverID).Scan(&match.MatchID)
 	if handleError(err, c) {
 		return
 	}
@@ -451,16 +345,23 @@ func newMatchInComp(c *gin.Context) {
 	match.Player1, match.Player2 = getPlayersFromMatch(match.MatchID)
 
 	var response struct {
-		NewIDs ScoreResponse `json:"newIDs"`
-		Match  Match         `json:"match"`
+		NewPoint ScoreResponse `json:"newPoint"`
+		Match    Match         `json:"match"`
 	}
 
-	res := newSetGamePoint(c, match.MatchID, request.ServerID, request.ReceiverID, 1, request.NumPoints, request.NumGames)
-	if res == nil {
+	sqlStatement = `
+	INSERT INTO point (number, match_id, server_id, receiver_id)
+	VALUES (1, $1, $2, $3)`
+	_, err = db.Exec(sqlStatement, match.MatchID, request.ServerID, request.ReceiverID)
+	if handleError(err, c) {
 		return
 	}
 
-	response.NewIDs = *res
+	// FIXME: disgusting code
+	res := ScoreResponse{NewServer: &request.ServerID, OtherPlayerPoints: 0, LastPointWinnerPts: 0}
+	one := 1
+	res.Point = &one
+	response.NewPoint = res
 	match.StartDate = &request.StartDate
 	response.Match = match
 	c.JSON(http.StatusOK, response)
@@ -470,39 +371,39 @@ func newMatchInComp(c *gin.Context) {
 // Creates a new set, game and point within the match
 //
 // Returns a Score Reponse containing the point number, game and set ID
-func newSetGamePoint(c *gin.Context, matchID, serverID, receiverID, setNumber, numPoints, numGames int) *ScoreResponse {
+// func newSetGamePoint(c *gin.Context, matchID, serverID, receiverID, setNumber, numPoints, numGames int) *ScoreResponse {
 
-	var response ScoreResponse
+// 	var response ScoreResponse
 
-	// Create a new set, game and point
-	sqlStatement := `WITH new_set AS (
-		INSERT INTO set (match_id, number, num_games)
-		VALUES
-		($1, $2, $3)
-		RETURNING id
-		), 
-		new_game AS (
-		INSERT INTO game (set_id, number, server_id, receiver_id, num_points)
-		VALUES
-		( (SELECT id FROM new_set), 1, $4, $5, $6)
-		RETURNING id
-		),
-		new_point AS (
-		INSERT into point (number, game_id, server_id)
-		VALUES
-		(1,  (SELECT id FROM new_game), $4 )
-		RETURNING number
-		)
-		SELECT new_point.number as pid, new_game.id as gid, new_set.id as sid
-		FROM new_point, new_game, new_set`
+// 	// Create a new set, game and point
+// 	sqlStatement := `WITH new_set AS (
+// 		INSERT INTO set (match_id, number, num_games)
+// 		VALUES
+// 		($1, $2, $3)
+// 		RETURNING id
+// 		),
+// 		new_game AS (
+// 		INSERT INTO game (set_id, number, server_id, receiver_id, num_points)
+// 		VALUES
+// 		( (SELECT id FROM new_set), 1, $4, $5, $6)
+// 		RETURNING id
+// 		),
+// 		new_point AS (
+// 		INSERT into point (number, game_id, server_id)
+// 		VALUES
+// 		(1,  (SELECT id FROM new_game), $4 )
+// 		RETURNING number
+// 		)
+// 		SELECT new_point.number as pid, new_game.id as gid, new_set.id as sid
+// 		FROM new_point, new_game, new_set`
 
-	err := db.QueryRow(sqlStatement, matchID, setNumber, numGames, serverID, receiverID, numPoints).Scan(&response.Point, &response.Game, &response.Set)
-	if handleError(err, c) {
-		return nil
-	}
+// 	err := db.QueryRow(sqlStatement, matchID, setNumber, numGames, serverID, receiverID, numPoints).Scan(&response.Point, &response.Game, &response.Set)
+// 	if handleError(err, c) {
+// 		return nil
+// 	}
 
-	return &response
-}
+// 	return &response
+// }
 
 // Endpoint /matches/:id
 //
@@ -546,7 +447,7 @@ func getMatchStats(c *gin.Context) {
 	}
 
 	var response struct {
-		Sets    []Set            `json:"sets"`
+		Points  []Point          `json:"points"`
 		Player1 PlayerMatchStats `json:"player1"`
 		Player2 PlayerMatchStats `json:"player2"`
 	}
@@ -558,13 +459,11 @@ func getMatchStats(c *gin.Context) {
 	Count(CASE WHEN p.faults>1 THEN 1 END ) as double_faults, 
 	SUM(p.lets) as lets, 
 	Count(CASE WHEN p.ace THEN 1 END) as aces,
-	game.server_id 
+	p.server_id 
 	FROM point p
-	LEFT JOIN game ON game_id = game.id
-	LEFT JOIN set ON game.set_id = set.id
-	LEFT JOIN match ON match.id = set.match_id
-	where match.id = $1 AND (game.server_id = $2 OR game.server_id = $3)
-	GROUP BY game.server_id`
+	LEFT JOIN match ON match.id = p.match_id
+	where match.id = $1 AND (p.server_id = $2 OR p.server_id = $3)
+	GROUP BY p.server_id`
 
 	rows, err := db.Query(sqlStatement, matchID, p1.Id, p2.Id)
 	if handleError(err, c) {
@@ -590,9 +489,7 @@ func getMatchStats(c *gin.Context) {
 	// Count errors
 	sqlStatement = `SELECT Count(CASE WHEN point.unforced_error THEN 1 END), player.id from player
 	LEFT JOIN match_participant mp on mp.player_id = id
-	LEFT JOIN set ON set.match_id = mp.match_id
-	LEFT JOIN game ON set.id = game.set_id
-	LEFT JOIN point ON point.game_id = game.id
+	LEFT JOIN point ON point.match_id = mp.match_id
 	WHERE point.winner_id != player.id and mp.match_id = $1
 	GROUP BY player.id;`
 
