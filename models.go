@@ -77,9 +77,10 @@ type Match struct {
 }
 
 type ScoreResponse struct {
-	Point *int `json:"pointNum"`
-	Game  *int `json:"gameID"`
-	Set   *int `json:"setID"`
+	Point              *int `json:"pointNum"`
+	NewServer          *int `json:"newServer"`
+	LastPointWinnerPts int  `json:"lastWinnersPoints"`
+	OtherPlayerPoints  int  `json:"otherPlayersPoints"`
 }
 
 type PlayerMatchStats struct {
@@ -105,18 +106,4 @@ type PointStats struct {
 	Lets        int  `json:"lets"`
 	Ace         bool `json:"ace"`
 	Error       bool `json:"error"`
-}
-
-type Game struct {
-	WinnerID int     `json:"winnerID"`
-	GameID   int     `json:"id"`
-	Number   int     `json:"number"`
-	Points   []Point `json:"points"`
-}
-
-type Set struct {
-	WinnerID int    `json:"winnerID"`
-	SetID    int    `json:"id"`
-	Number   int    `json:"number"`
-	Games    []Game `json:"games"`
 }
