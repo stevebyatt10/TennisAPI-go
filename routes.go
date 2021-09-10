@@ -429,6 +429,10 @@ func getMatchFromID(c *gin.Context) {
 
 	match.Player1, match.Player2 = getPlayersFromMatch(match.MatchID)
 
+	score := MatchScore{}
+	score.Player1, score.Player2 = getMatchScore(match.MatchID, match.Player1.Id, match.Player2.Id)
+	match.Score = &score
+
 	if comp.Id != nil {
 		match.Competition = &comp
 	}
@@ -544,10 +548,46 @@ func getCompMatches(c *gin.Context) {
 
 		match.Player1, match.Player2 = getPlayersFromMatch(match.MatchID)
 
+		match.Score.Player1, match.Score.Player2 = getMatchScore(match.MatchID, match.Player1.Id, match.Player2.Id)
+
 		matchResponse.Matches = append(matchResponse.Matches, match)
 	}
 
 	c.JSON(http.StatusOK, matchResponse)
+}
+
+func getMatchScore(matchID, p1Id, p2Id int) (int, int) {
+
+	// Get players wins
+	sqlStatement := `
+	SELECT player.id, (SELECT COUNT(winner_id) FROM point
+			WHERE winner_id = player.id and match_id = $1) as wins
+	FROM player
+	JOIN match_participant mp ON player_id = player.id
+	WHERE mp.match_id = $1;`
+	rows, err := db.Query(sqlStatement, matchID)
+	if err != nil {
+		println(err.Error())
+		return 0, 0
+	}
+
+	var p1wins, p2wins int
+	for rows.Next() {
+		var wins, id int
+		err = rows.Scan(&id, &wins)
+		if err != nil {
+			println(err.Error())
+		}
+
+		if id == p1Id {
+			p1wins = wins
+		} else {
+			p2wins = wins
+		}
+	}
+	println("returning wins")
+
+	return p1wins, p2wins
 }
 
 // Returns 2 pointers to each player in the specified match
@@ -626,7 +666,7 @@ func getCompTable(c *gin.Context) {
 	FROM match_result
 	JOIN match ON match_id = match.id
 	JOIN comp on match.comp_id = comp.id
-	where comp.id = 1 and winner_id = p.id) AS wins  
+	where comp.id = $1 and winner_id = p.id) AS wins  
 	FROM player p
 		JOIN match_participant mp on mp.player_id = p.id
 		JOIN match m ON mp.match_id = m.id
@@ -662,9 +702,17 @@ func getCompTable(c *gin.Context) {
 // Returns an array of comp objects, only comps that are public
 func getPublicComps(c *gin.Context) {
 
-	sqlStatement := `SELECT id, comp_name, is_private, creator_id  FROM comp where is_private=false;`
+	sqlStatement := `SELECT id, comp_name, is_private, creator_id, COUNT(r.player_id), null as pos 
+	FROM comp
+	LEFT JOIN comp_reg r on id = r.comp_id
+	WHERE is_private=false
+	GROUP BY id;`
 
-	getCompetitions(c, sqlStatement)
+	res, err := getCompetitions(c, sqlStatement)
+	if handleError(err, c) {
+		return
+	}
+	c.JSON(http.StatusOK, res)
 
 }
 
@@ -673,38 +721,85 @@ func getPublicComps(c *gin.Context) {
 // Returns an array of comp objects that the player is registered in
 func getPlayerComps(c *gin.Context) {
 
-	id := c.Param("id")
+	param := c.Param("id")
+	playerid, err := strconv.Atoi(param)
+	if handleError(err, c) {
+		return
+	}
 
-	sqlStatement := `SELECT id, comp_name, is_private, creator_id  FROM comp 
+	sqlStatement := `SELECT id, comp_name, is_private, creator_id, (SELECT COUNT(player_id) FROM comp_reg WHERE comp_id = comp.id) as totalplayers, null as pos    
+	FROM comp 
 	LEFT JOIN comp_reg ON comp.id = comp_reg.comp_id 
-	where comp_reg.player_id = $1 and (pending=false or pending is null);`
+	WHERE comp_reg.player_id = $1 and (pending=false or pending is null)`
 
-	getCompetitions(c, sqlStatement, id)
+	res, err := getCompetitions(c, sqlStatement, playerid)
+	if handleError(err, c) {
+		return
+	}
+
+	sqlStatement = `SELECT player.id, COUNT(player.id) as wins 
+	FROM player
+	JOIN match_result on id = match_result.winner_id
+	JOIN match on match_result.match_id = match.id
+	JOIN comp on match.comp_id = comp.id
+	WHERE comp.id = $1
+	group by player.id
+	order by wins DESC
+	;`
+
+	// For each comp
+
+	for index := 0; index < len(res.Competitions); index++ {
+		rows, err := db.Query(sqlStatement, res.Competitions[index].Id)
+		if handleError(err, c) {
+			return
+		}
+
+		// For each player
+		i := 1
+		for rows.Next() {
+			var id, wins int
+			err = rows.Scan(&id, &wins)
+			if err != nil {
+				println(err.Error())
+			}
+
+			if id == playerid {
+				res.Competitions[index].PlayerPos = &i
+				break
+			}
+
+			i++
+
+		}
+	}
+
+	c.JSON(http.StatusOK, res)
 
 }
 
 // Returns an array of competitions
 //
 // Handles error inside, status will reflect the success of the query
-func getCompetitions(c *gin.Context, sqlStatement string, args ...interface{}) {
+func getCompetitions(c *gin.Context, sqlStatement string, args ...interface{}) (*CompetitionResponse, error) {
 
 	rows, err := db.Query(sqlStatement, args...)
 
-	if handleError(err, c) {
-		return
+	if err != nil {
+		return nil, err
 	}
 
 	compResponse := CompetitionResponse{Competitions: []Competition{}}
 	for rows.Next() {
-		var compeition Competition
-		err = rows.Scan(&compeition.Id, &compeition.Name, &compeition.IsPrivate, &compeition.CreatorID)
+		var comp Competition
+		err = rows.Scan(&comp.Id, &comp.Name, &comp.IsPrivate, &comp.CreatorID, &comp.PlayerCount, &comp.PlayerPos)
 		if err != nil {
 			println(err.Error())
 		}
-		compResponse.Competitions = append(compResponse.Competitions, compeition)
+		compResponse.Competitions = append(compResponse.Competitions, comp)
 	}
 
-	c.JSON(http.StatusOK, compResponse)
+	return &compResponse, nil
 }
 
 // Endpoint: /comps/:id/players
@@ -872,9 +967,11 @@ func registerPlayer(c *gin.Context) {
 		c.AbortWithStatus(http.StatusInternalServerError)
 		return
 	}
-
 	// Return token and user id
 	retObj := PlayerToken{PlayerId: id, Token: token}
 
 	c.JSON(http.StatusCreated, retObj)
+
+	go sendWelcomeEmail(newPlayer)
+
 }

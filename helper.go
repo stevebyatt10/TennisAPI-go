@@ -19,10 +19,14 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
+
+	"html/template"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	gomail "gopkg.in/mail.v2"
 )
 
 func connectToDB() {
@@ -102,4 +106,38 @@ func tryGetRequest(c *gin.Context, obj interface{}) bool {
 		return false
 	}
 	return true
+}
+
+type welcomeData struct {
+	FName string
+	LName string
+}
+
+func sendWelcomeEmail(player PlayerRegister) {
+	m := gomail.NewMessage()
+
+	m.SetHeader("From", m.FormatAddress(fromEmail, "Tennis Tracker"))
+	m.SetHeader("To", m.FormatAddress(player.Email, player.FirstName))
+	m.SetHeader("Subject", "Welcome to Tennis Tracker")
+
+	// Load the template
+	tmpl, err := template.ParseFiles("emails/welcome.html")
+	if err != nil {
+		fmt.Println(err)
+		panic(err)
+	}
+
+	data := welcomeData{FName: player.FirstName, LName: player.LastName}
+
+	// Write template with data to email body
+	m.SetBodyWriter("text/html", func(w io.Writer) error {
+		return tmpl.Execute(w, data)
+	})
+
+	// Send email
+	d := gomail.NewDialer(hostEmail, portEmail, fromEmail, passwordEmail)
+	if err := d.DialAndSend(m); err != nil {
+		fmt.Println(err)
+		panic(err)
+	}
 }

@@ -38,10 +38,12 @@ type ErrorResposne struct {
 }
 
 type Competition struct {
-	Id        *int    `json:"id"`
-	Name      *string `json:"name"`
-	IsPrivate *bool   `json:"isPrivate"`
-	CreatorID *int    `json:"creatorID"`
+	Id          *int    `json:"id"`
+	Name        *string `json:"name"`
+	IsPrivate   *bool   `json:"isPrivate"`
+	CreatorID   *int    `json:"creatorID"`
+	PlayerCount int     `json:"playerCount"`
+	PlayerPos   *int    `json:"pos"`
 }
 
 type CompetitionResponse struct {
@@ -74,6 +76,12 @@ type Match struct {
 	StartDate   *time.Time   `json:"startDate"`
 	EndDate     *time.Time   `json:"endDate"`
 	WinnerID    *int         `json:"winnerID"`
+	Score       *MatchScore  `json:"score"`
+}
+
+type MatchScore struct {
+	Player1 int `json:"player1"`
+	Player2 int `json:"player2"`
 }
 
 type ScoreResponse struct {
