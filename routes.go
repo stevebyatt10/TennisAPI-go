@@ -515,6 +515,28 @@ func getMatchStats(c *gin.Context) {
 		}
 	}
 
+	// Get all points from match
+	sqlStatement = `SELECT number, winner_id, server_id, receiver_id, 
+	faults, 
+	CASE WHEN faults > 1 THEN TRUE 
+	ELSE FALSE END double_fault, lets, ace, unforced_error 
+	FROM point
+	WHERE match_id = $1;`
+
+	rows, err = db.Query(sqlStatement, matchID)
+	if handleError(err, c) {
+		return
+	}
+
+	for rows.Next() {
+		var point Point
+		err = rows.Scan(&point.Number, &point.WinnerID, &point.ServerID, &point.ReceiverID, &point.Stats.Faults, &point.Stats.DoubleFault, &point.Stats.Lets, &point.Stats.Ace, &point.Stats.Error)
+		if err != nil {
+			println(err.Error())
+		}
+		response.Points = append(response.Points, point)
+	}
+
 	c.JSON(http.StatusOK, response)
 
 }
@@ -587,7 +609,6 @@ func getMatchScore(matchID, p1Id, p2Id int) (int, int) {
 			p2wins = wins
 		}
 	}
-	println("returning wins")
 
 	return p1wins, p2wins
 }
@@ -811,7 +832,7 @@ func getCompPlayers(c *gin.Context) {
 	id := c.Param("id")
 	sqlStatement := `SELECT id, first_name, last_name FROM player 
 	LEFT JOIN comp_reg ON id=comp_reg.player_id
-	WHERE comp_reg.comp_id=$1;`
+	WHERE comp_reg.comp_id=$1 and comp_reg.pending != true;`
 	queryPlayers(c, sqlStatement, id)
 }
 
