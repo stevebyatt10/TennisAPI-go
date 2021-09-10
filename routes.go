@@ -832,7 +832,7 @@ func getCompPlayers(c *gin.Context) {
 	id := c.Param("id")
 	sqlStatement := `SELECT id, first_name, last_name FROM player 
 	LEFT JOIN comp_reg ON id=comp_reg.player_id
-	WHERE comp_reg.comp_id=$1 and comp_reg.pending != true;`
+	WHERE comp_reg.comp_id=$1 and (comp_reg.pending != true or comp_reg.pending is null);`
 	queryPlayers(c, sqlStatement, id)
 }
 
