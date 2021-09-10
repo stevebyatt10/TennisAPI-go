@@ -548,7 +548,9 @@ func getCompMatches(c *gin.Context) {
 
 		match.Player1, match.Player2 = getPlayersFromMatch(match.MatchID)
 
-		match.Score.Player1, match.Score.Player2 = getMatchScore(match.MatchID, match.Player1.Id, match.Player2.Id)
+		score := MatchScore{}
+		score.Player1, score.Player2 = getMatchScore(match.MatchID, match.Player1.Id, match.Player2.Id)
+		match.Score = &score
 
 		matchResponse.Matches = append(matchResponse.Matches, match)
 	}
