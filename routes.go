@@ -728,13 +728,14 @@ func getPublicComps(c *gin.Context) {
 	sqlStatement := `SELECT id, comp_name, is_private, creator_id, COUNT(r.player_id), null as pos 
 	FROM comp
 	LEFT JOIN comp_reg r on id = r.comp_id
-	WHERE is_private=false
+	WHERE is_private=false and pending = false
 	GROUP BY id;`
 
 	res, err := getCompetitions(c, sqlStatement)
 	if handleError(err, c) {
 		return
 	}
+	println(res.Competitions[0].PlayerCount)
 	c.JSON(http.StatusOK, res)
 
 }
@@ -750,24 +751,35 @@ func getPlayerComps(c *gin.Context) {
 		return
 	}
 
-	sqlStatement := `SELECT id, comp_name, is_private, creator_id, (SELECT COUNT(player_id) FROM comp_reg WHERE comp_id = comp.id) as totalplayers, null as pos    
-	FROM comp 
-	LEFT JOIN comp_reg ON comp.id = comp_reg.comp_id 
-	WHERE comp_reg.player_id = $1 and (pending=false or pending is null)`
+	sqlStatement := `SELECT id, comp_name, is_private, creator_id, 
+	(SELECT COUNT(player_id) FROM comp_reg WHERE comp_id = id) as totalplayers, null as pos    
+		FROM comp
+		LEFT JOIN comp_reg ON comp.id = comp_reg.comp_id 
+		WHERE comp_reg.player_id = $1 and pending = false
+		GROUP BY comp.id`
 
 	res, err := getCompetitions(c, sqlStatement, playerid)
 	if handleError(err, c) {
 		return
 	}
 
-	sqlStatement = `SELECT player.id, COUNT(player.id) as wins 
-	FROM player
-	JOIN match_result on id = match_result.winner_id
-	JOIN match on match_result.match_id = match.id
+	// Getting player position
+
+	sqlStatement = `SELECT 
+	p.id,
+	(SELECT count(winner_id)
+	FROM match_result
+	JOIN match ON match_id = match.id
 	JOIN comp on match.comp_id = comp.id
-	WHERE comp.id = $1
-	group by player.id
-	order by wins DESC
+	where comp.id = $1 and winner_id = p.id) AS wins  
+	FROM player p
+	JOIN match_participant mp on mp.player_id = p.id
+	JOIN match m ON mp.match_id = m.id
+	JOIN comp c ON c.id = m.comp_id
+	JOIN match_result mr on mr.match_id = m.id 
+	WHERE c.id = $1
+	GROUP BY p.id
+	ORDER BY wins DESC
 	;`
 
 	// For each comp
@@ -778,17 +790,18 @@ func getPlayerComps(c *gin.Context) {
 			return
 		}
 
-		// For each player
+		// For each player in comp
 		i := 1
 		for rows.Next() {
-			var id, wins int
-			err = rows.Scan(&id, &wins)
+			var scannedID, wins int
+			err = rows.Scan(&scannedID, &wins)
 			if err != nil {
 				println(err.Error())
 			}
 
-			if id == playerid {
+			if scannedID == playerid {
 				res.Competitions[index].PlayerPos = &i
+				println("Players position is ", i)
 				break
 			}
 
@@ -819,6 +832,7 @@ func getCompetitions(c *gin.Context, sqlStatement string, args ...interface{}) (
 		if err != nil {
 			println(err.Error())
 		}
+		println(*comp.Id, *comp.Name, *comp.IsPrivate, *comp.CreatorID, comp.PlayerCount, comp.PlayerPos)
 		compResponse.Competitions = append(compResponse.Competitions, comp)
 	}
 
@@ -911,7 +925,7 @@ func login(c *gin.Context) {
 	if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(loginDetails.Password)) != nil {
 		println("Incorrect password")
 
-		c.AbortWithStatus(http.StatusBadRequest)
+		c.AbortWithStatus(http.StatusNotFound)
 		return
 	}
 
