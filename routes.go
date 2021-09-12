@@ -752,7 +752,7 @@ func getPlayerComps(c *gin.Context) {
 	}
 
 	sqlStatement := `SELECT id, comp_name, is_private, creator_id, 
-	(SELECT COUNT(player_id) FROM comp_reg WHERE comp_id = id) as totalplayers, null as pos    
+	(SELECT COUNT(player_id) FROM comp_reg WHERE comp_id = id and pending = false) as totalplayers, null as pos    
 		FROM comp
 		LEFT JOIN comp_reg ON comp.id = comp_reg.comp_id 
 		WHERE comp_reg.player_id = $1 and pending = false
