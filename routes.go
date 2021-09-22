@@ -541,17 +541,84 @@ func getMatchStats(c *gin.Context) {
 
 }
 
+// Endpoint: /matches/:id/latest
+//
+// Delete the latest point and return the one before
+func deleteLatestPoint(c *gin.Context) {
+	matchID := c.Param("id")
+
+	sqlStatement := `WITH latest AS (SELECT number FROM point
+		WHERE match_id = $1
+		ORDER BY number DESC
+		LIMIT 1)
+		DELETE FROM point WHERE match_id = $1 and number = (select number from latest)`
+
+	_, err := db.Exec(sqlStatement, matchID)
+	if handleError(err, c) {
+		return
+	}
+
+	sqlStatement = `SELECT number, faults, lets, ace, unforced_error, winner_id, server_id, receiver_id FROM point
+	WHERE match_id = $1
+	ORDER BY number DESC
+	LIMIT 1`
+
+	var response Point
+
+	err = db.QueryRow(sqlStatement, matchID).Scan(&response.Number, &response.Stats.Faults, &response.Stats.Lets, &response.Stats.Ace, &response.Stats.Error, &response.WinnerID, &response.ServerID, &response.ReceiverID)
+	if handleError(err, c) {
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+
+}
+
+// Endpoint: /matches/:id/latest
+//
+// Return the latest point to score
+func getMatchLatestPoint(c *gin.Context) {
+	matchID := c.Param("id")
+
+	sqlStatement := `SELECT number, server_id FROM point
+	WHERE match_id = $1
+	ORDER BY number DESC
+	LIMIT 1`
+
+	var response ScoreResponse
+
+	err := db.QueryRow(sqlStatement, matchID).Scan(&response.Point, &response.NewServer)
+	if handleError(err, c) {
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+
+}
+
 // Endpoint: /comps/:id/matches
 //
 // Return all matches within the comp
 func getCompMatches(c *gin.Context) {
 	compID := c.Param("id")
 
+	var request struct {
+		Limit *int       `form:"limit"`
+		From  *time.Time `form:"from"`
+		To    *time.Time `form:"to"`
+	}
+
+	if !tryGetRequest(c, &request) {
+		return
+	}
+
 	sqlStatement := `SELECT id, start_date, end_date, winner_id FROM match
 	LEFT JOIN match_result ON match.id = match_result.match_id
-	WHERE match.comp_id= $1 and match_result.winner_id is not null
-	ORDER BY end_date DESC`
-	rows, err := db.Query(sqlStatement, compID)
+	WHERE match.comp_id = $1 and (start_date >= $2 or $2 is NULL) and (end_date >= $3 or $3 is NULL)
+	ORDER BY end_date DESC
+	LIMIT $4`
+
+	rows, err := db.Query(sqlStatement, compID, request.From, request.To, request.Limit)
 
 	if handleError(err, c) {
 		return
@@ -801,7 +868,6 @@ func getPlayerComps(c *gin.Context) {
 
 			if scannedID == playerid {
 				res.Competitions[index].PlayerPos = &i
-				println("Players position is ", i)
 				break
 			}
 
@@ -832,7 +898,6 @@ func getCompetitions(c *gin.Context, sqlStatement string, args ...interface{}) (
 		if err != nil {
 			println(err.Error())
 		}
-		println(*comp.Id, *comp.Name, *comp.IsPrivate, *comp.CreatorID, comp.PlayerCount, comp.PlayerPos)
 		compResponse.Competitions = append(compResponse.Competitions, comp)
 	}
 

@@ -56,6 +56,8 @@ func main() {
 		matchesGroup.GET("/:id", getMatchFromID)
 		matchesGroup.POST("/:id/score", scoreMatch)
 		matchesGroup.GET("/:id/stats", getMatchStats)
+		matchesGroup.GET("/:id/latest", getMatchLatestPoint)
+		matchesGroup.DELETE("/:id/latest", deleteLatestPoint)
 
 	}
 
