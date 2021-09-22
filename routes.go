@@ -684,7 +684,7 @@ func getMatchScore(matchID, p1Id, p2Id int) (int, int) {
 func getPlayersFromMatch(matchID int) (*Player, *Player) {
 	var player1, player2 *Player
 
-	pStatement := `SELECT id, first_name, last_name FROM player 
+	pStatement := `SELECT id, first_name, last_name, is_admin FROM player 
 	LEFT JOIN match_participant mp ON mp.player_id = player.id
 	WHERE match_id = $1`
 	prows, perr := db.Query(pStatement, matchID)
@@ -695,7 +695,7 @@ func getPlayersFromMatch(matchID int) (*Player, *Player) {
 	p := true
 	for prows.Next() {
 		var scannedPlayer Player
-		perr = prows.Scan(&scannedPlayer.Id, &scannedPlayer.FirstName, &scannedPlayer.LastName)
+		perr = prows.Scan(&scannedPlayer.Id, &scannedPlayer.FirstName, &scannedPlayer.LastName, &scannedPlayer.Admin)
 		if perr != nil {
 			println(perr.Error())
 		}
@@ -909,7 +909,7 @@ func getCompetitions(c *gin.Context, sqlStatement string, args ...interface{}) (
 // Return an array of player objects within the specified comp
 func getCompPlayers(c *gin.Context) {
 	id := c.Param("id")
-	sqlStatement := `SELECT id, first_name, last_name FROM player 
+	sqlStatement := `SELECT id, first_name, last_name, is_admin FROM player 
 	LEFT JOIN comp_reg ON id=comp_reg.player_id
 	WHERE comp_reg.comp_id=$1 and (comp_reg.pending != true or comp_reg.pending is null);`
 	queryPlayers(c, sqlStatement, id)
@@ -920,7 +920,7 @@ func getCompPlayers(c *gin.Context) {
 // Return an array of all player objects
 func getPlayers(c *gin.Context) {
 
-	sqlStatement := `SELECT id, first_name, last_name FROM player;`
+	sqlStatement := `SELECT id, first_name, last_name, is_admin FROM player;`
 	queryPlayers(c, sqlStatement)
 }
 
@@ -938,7 +938,7 @@ func queryPlayers(c *gin.Context, sqlStatement string, args ...interface{}) {
 	playersRes := PlayersResponse{Players: []Player{}}
 	for rows.Next() {
 		var player Player
-		err = rows.Scan(&player.Id, &player.FirstName, &player.LastName)
+		err = rows.Scan(&player.Id, &player.FirstName, &player.LastName, &player.Admin)
 		if err != nil {
 			println(err.Error())
 		}
@@ -955,8 +955,8 @@ func getPlayerWithID(c *gin.Context) {
 	id := c.Param("id")
 
 	var player Player
-	sqlStatement := `SELECT id, first_name, last_name FROM player where id=$1;`
-	err := db.QueryRow(sqlStatement, id).Scan(&player.Id, &player.FirstName, &player.LastName)
+	sqlStatement := `SELECT id, first_name, last_name, is_admin FROM player where id=$1;`
+	err := db.QueryRow(sqlStatement, id).Scan(&player.Id, &player.FirstName, &player.LastName, &player.Admin)
 	if handleError(err, c) {
 		return
 	}

@@ -62,6 +62,7 @@ type Player struct {
 	Id        int    `json:"id"`
 	FirstName string `json:"firstName"`
 	LastName  string `json:"lastName"`
+	Admin     *bool  `json:"admin"`
 }
 
 type PlayersResponse struct {
