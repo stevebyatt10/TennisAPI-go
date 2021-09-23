@@ -411,9 +411,9 @@ func newMatchInComp(c *gin.Context) {
 func deleteMatchFromID(c *gin.Context) {
 	matchID := c.Param("id")
 
-	sqlStatement := `DELETE FROM point WHERE match_id = $1;
-	DELETE FROM match_participant WHERE match_id = $1;
-	DELETE FROM match_result WHERE match_id = $1;
+	sqlStatement := `with points as (DELETE FROM point WHERE match_id = $1),
+	parts as (DELETE FROM match_participant WHERE match_id = $1),
+	res as (DELETE FROM match_result WHERE match_id = $1)
 	DELETE FROM match WHERE id= $1;`
 
 	_, err := db.Exec(sqlStatement, matchID)
