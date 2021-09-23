@@ -54,8 +54,11 @@ func main() {
 		matchesGroup.Use(ensureAuthenticated())
 
 		matchesGroup.GET("/:id", getMatchFromID)
+		matchesGroup.DELETE("/:id", deleteMatchFromID)
+
 		matchesGroup.POST("/:id/score", scoreMatch)
 		matchesGroup.GET("/:id/stats", getMatchStats)
+
 		matchesGroup.GET("/:id/latest", getMatchLatestPoint)
 		matchesGroup.DELETE("/:id/latest", deleteLatestPoint)
 

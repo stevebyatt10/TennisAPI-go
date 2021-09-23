@@ -407,6 +407,26 @@ func newMatchInComp(c *gin.Context) {
 
 // Endpoint /matches/:id
 //
+// Delete a match
+func deleteMatchFromID(c *gin.Context) {
+	matchID := c.Param("id")
+
+	sqlStatement := `DELETE FROM point WHERE match_id = $1;
+	DELETE FROM match_participant WHERE match_id = $1;
+	DELETE FROM match_result WHERE match_id = $1;
+	DELETE FROM match WHERE id= $1;`
+
+	_, err := db.Exec(sqlStatement, matchID)
+
+	if handleError(err, c) {
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
+// Endpoint /matches/:id
+//
 // Returns a match object from the provided endpoint
 func getMatchFromID(c *gin.Context) {
 	matchID := c.Param("id")
